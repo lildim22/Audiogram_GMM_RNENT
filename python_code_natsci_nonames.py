@@ -1,5 +1,4 @@
-#Import Packages 
-#import requred libraries
+#Import Packages and requred libraries
 from sklearn.mixture import GaussianMixture
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -176,88 +175,141 @@ gmm_thresholds_bl
 
 
 ### Iterate through different cluster numbers and caclulate BIC scores to select optimal cluster number 
+delete
 
-# normalisation of BIC
-#this step performed to make output equivalent to MEE paper who plot the normalised BIC rather than the raw BIC 
 
+# Function to normalize data - MEE paper compute normalised BIC rather than raw BIC. 
 def normalize_data(data):
     return (data - np.min(data)) / (np.max(data) - np.min(data))
 
+# Step 1: Define Random Seeds and Cluster Range
+rand = [1, 10, 20, 30, 40, 50, 60000, 70, 80, 9333330, 100, 110, 120, 13044, 140, 150, 160, 170, 18024, 190, 200]  # 21 random seeds
+n_comp = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]  # Range of clusters
 
-# Step 1: Collect BIC Scores
-rand = [1, 10, 20, 30, 40, 50, 60000, 70, 80, 9333330, 100, 110, 120, 13044, 140, 150, 160, 170, 18024, 190, 200] #21 random seeds
-n_comp = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] # cluster numbers
-bic_scores = []
+# Track time
+start_time = time.time()
 
-for n in n_comp:
-    for r in rand:
-        gmm = GaussianMixture(n_components=n, covariance_type='full', random_state=r, reg_covar=0.01) # GMM model with MEE parameters for covariance_type + reg_covar
-        gmm.fit(gmm_thresholds_bl)
-        bic = gmm.bic(gmm_thresholds_bl)
-        bic_scores.append({'seed': r, 'k': n, 'bic': bic})
+# Step 2: Fit Gaussian Mixture Model and Compute BIC and AIC
+scores = []  # Store both BIC and AIC
 
-# Step 2: Normalize BIC Scores
-df_bic_scores = pd.DataFrame(bic_scores) #create dataframe with the BIC scores 
-df_bic_scores['normalized_bic'] = normalize_data(df_bic_scores['bic']) # add normalised BIC scores to this 
+# Create a progress bar with tqdm
+total_iterations = len(n_comp) * len(rand)
+with tqdm(total=total_iterations, desc="Processing Clusters", unit="iteration") as pbar:
+    for i, n in enumerate(n_comp):
+        for j, r in enumerate(rand):
+            gmm = GaussianMixture(n_components=n, covariance_type='full', random_state=r, reg_covar=0.01)
+            gmm.fit(gmm_thresholds_bl)
 
-# Step 3: Calculate Mean and Standard Deviation
-cluster_stats = df_bic_scores.groupby('k')['normalized_bic'].agg(['mean', 'std']).reset_index()
+            bic = gmm.bic(gmm_thresholds_bl)  # Compute BIC
+            aic = gmm.aic(gmm_thresholds_bl)  # Compute AIC
 
-# Display the resulting DataFrames
-print("DataFrame for normalized BIC scores:")
-print(df_bic_scores)
+            scores.append({'seed': r, 'k': n, 'bic': bic, 'aic': aic})  # Store both scores
 
-print("\nDataFrame for cluster statistics:")
+            # Update progress bar
+            pbar.update(1)
+
+            # Optional: Print progress every 10 iterations
+            if (i * len(rand) + j) % 10 == 0:
+                elapsed_time = time.time() - start_time
+                print(f"Iteration {i * len(rand) + j}/{total_iterations} completed. Elapsed time: {elapsed_time:.2f} seconds.")
+
+# Step 3: Convert to DataFrame
+df_scores = pd.DataFrame(scores)
+
+# Step 4: Normalize BIC and AIC
+df_scores['normalized_bic'] = normalize_data(df_scores['bic'])
+df_scores['normalized_aic'] = normalize_data(df_scores['aic'])
+
+# Step 5: Calculate Mean and Standard Deviation for Each Cluster Size
+cluster_stats = df_scores.groupby('k')[['normalized_bic', 'normalized_aic']].agg(['mean', 'std']).reset_index()
+
+# Track end time
+end_time = time.time()
+execution_time = end_time - start_time
+
+# Display Results
+print("\nDataFrame with BIC and AIC scores:")
+print(df_scores)
+
+print("\nDataFrame with cluster statistics (mean & std):")
 print(cluster_stats)
 
+print(f"\nTotal execution time: {execution_time:.2f} seconds.")
 
-#Group by cluster and calculate mean and standard deviation for each group
-grouped_data = df_bic_scores.groupby('k')['normalized_bic']
-means = grouped_data.mean()
-std_devs = grouped_data.std()
+#save these outputs to csv so not so slow to run each time .
+df_scores.to_csv('df_scores_03_02.csv')
+
+cluster_stats.to_csv('cluster_stats_03_02.csv')
+
+
+### Plot AIC and BIC elbow plots as function of cluster number 
+
+
+# Group by 'k' and calculate mean and standard deviation for each group (BIC & AIC)
+grouped_bic = df_scores.groupby('k')['normalized_bic']
+grouped_aic = df_scores.groupby('k')['normalized_aic']
+
+# Compute mean and standard deviation for each cluster (k)
+means_bic = grouped_bic.mean()
+std_devs_bic = grouped_bic.std()
+
+means_aic = grouped_aic.mean()
+std_devs_aic = grouped_aic.std()
 
 # Number of observations in each group
-n = grouped_data.size()
+n_bic = grouped_bic.size()
+n_aic = grouped_aic.size()
 
 # Degrees of freedom for each group (n - 1)
-degrees_of_freedom = n - 1
+df_bic = n_bic - 1
+df_aic = n_aic - 1
 
-# Calculate the standard error of the mean for each group
-standard_errors = std_devs / (n ** 0.5)
+# Calculate standard error
+standard_errors_bic = std_devs_bic / (n_bic ** 0.5)
+standard_errors_aic = std_devs_aic / (n_aic ** 0.5)
 
-# Calculate the t-value for a 95% confidence interval (two-tailed)
-# The t.ppf function gives the t-value for a given probability and degrees of freedom
-t_value = stats.t.ppf(0.975, degrees_of_freedom)
+# Compute t-value for 95% confidence interval
+t_value_bic = stats.t.ppf(0.975, df_bic)
+t_value_aic = stats.t.ppf(0.975, df_aic)
 
-# Calculate the margin of error for each group
-margin_of_error = t_value * standard_errors
+# Compute margin of error for confidence interval
+margin_of_error_bic = t_value_bic * standard_errors_bic
+margin_of_error_aic = t_value_aic * standard_errors_aic
 
-# Calculate the confidence interval for the mean for each group
-confidence_intervals = pd.DataFrame({
-    'lower_bound': means - margin_of_error,
-    'upper_bound': means + margin_of_error
+# Compute confidence intervals
+confidence_intervals_bic = pd.DataFrame({
+    'lower_bound': means_bic - margin_of_error_bic,
+    'upper_bound': means_bic + margin_of_error_bic
 })
 
-# Display the result
-print(confidence_intervals)
+confidence_intervals_aic = pd.DataFrame({
+    'lower_bound': means_aic - margin_of_error_aic,
+    'upper_bound': means_aic + margin_of_error_aic
+})
 
-# Plot the means with 95% confidence intervals as a line plot
+# Plot the means with 95% confidence intervals
 plt.figure(figsize=(10, 6))
-plt.plot(means.index, means, marker='o', label='Mean BIC Score', color='blue')
-plt.fill_between(means.index, confidence_intervals['lower_bound'], confidence_intervals['upper_bound'], alpha=0.3, label='95% CI', color='skyblue')
-plt.xlabel('Cluster')
-plt.ylabel('Mean BIC Score')
-plt.title('Mean BIC Score per Cluster with 95% Confidence Intervals')
-plt.legend()
+plt.plot(means_bic.index, means_bic, marker='o', label='Mean BIC Score', color='blue')
+plt.fill_between(means_bic.index, confidence_intervals_bic['lower_bound'], confidence_intervals_bic['upper_bound'], alpha=0.3, label='95% CI (BIC)', color='skyblue')
 
+plt.plot(means_aic.index, means_aic, marker='o', label='Mean AIC Score', color='red')
+plt.fill_between(means_aic.index, confidence_intervals_aic['lower_bound'], confidence_intervals_aic['upper_bound'], alpha=0.3, label='95% CI (AIC)', color='salmon')
+
+plt.xlabel('Number of Clusters (k)')
+plt.ylabel('Normalized Score')
+plt.title('Mean BIC & AIC Scores per Cluster with 95% Confidence Intervals')
+plt.legend()
 plt.grid(False)
 
-plt.savefig('elbow_bic.jpg', format='jpeg', dpi=300)
+plt.savefig('elbow_bic_aic.jpg', format='jpeg', dpi=300)
 plt.show()
 
-# Find the number of clusters with the lowest BIC value
-optimal_clusters_bic = cluster_stats.loc[cluster_stats['mean'].idxmin()]['k']
-optimal_clusters_bic
+# Display the confidence interval results
+print("\nConfidence Intervals for BIC:")
+print(confidence_intervals_bic)
+
+print("\nConfidence Intervals for AIC:")
+print(confidence_intervals_aic)
 
 
 ###Now lets see the clusters identified by the optimal model of 9 clusters 
@@ -286,6 +338,7 @@ cluster7 = gmm.means_[6,:6]
 cluster8 = gmm.means_[7,:6]
 cluster9 = gmm.means_[8,:6]
 
+#get the mean value of each frequency per cluster 
 for i in range(1, 10):
     cluster_name = f'cluster{i}'
     cluster_value = locals()[cluster_name]
@@ -304,7 +357,7 @@ for cluster in range(num_clusters):
 num_samples_per_cluster 
 
 
-##long-winded code to create audiogram phenotypes 
+###long-winded code to create audiogram phenotypes 
 
 fig, ((ax1, ax2, ax3, ax4, ax5),(ax6, ax7, ax8, ax9, _)) = plt.subplots(2, 5, sharex=True, sharey=True, 
                                                                                        figsize=(10, 6))
@@ -402,9 +455,6 @@ ax8.title.set_text("Cluster 8")
 ax9.plot(x, cluster9, label = "Cluster 9")
 ax9.title.set_text("Cluster 9")
 
-
-#ax10.plot(x, y, cluster9 = "Cluster 10")
-#ax10.title.set_text("Cluster 10")
 plt.gca().invert_yaxis()
 
 
@@ -450,7 +500,7 @@ plt.show()
 info_copy2 = info_copy.copy(deep = True)
 merge = pd.concat([info_copy2, df_both_ears[['age', 'age_range', 'sex', 'side']]], axis=1)
 
-merge['clusters'] = merge['clusters'] + 1
+merge['clusters'] = merge['clusters'] + 1 #add 1 so cluster numbers start from 1 not 0 
 merge
 
 #men and women per cluster and age distribution per cluster in single plot 
@@ -526,7 +576,7 @@ clusters_init = clusters(info_copy) #output of this function when applied to the
 
 #create my bootstrap samples
 
-num_samples = 10 
+num_samples = 1000 
 
 np.random.seed(42) # Set a seed for reproducibility
 
@@ -727,5 +777,243 @@ plt.xticks(percentages)  # Set x-axis ticks to percentages
 plt.grid(False)
 
 plt.savefig('percentage.jpg', format='jpeg', dpi=300)
+plt.show()
+
+### Additional Analysis finding NIHL and reverse slope hearing loss 
+
+#Now lets see about Noise-induced hearing loss
+#coles et al criteria
+
+noise_coles = gmm_thresholds_bl[
+    (gmm_thresholds_bl['ac_4000'] - gmm_thresholds_bl['ac_8000'] >= 10) &
+    (
+        (gmm_thresholds_bl['ac_4000'] - gmm_thresholds_bl['ac_2000'] >= 10) |
+        (gmm_thresholds_bl['ac_4000'] - gmm_thresholds_bl['ac_1000'] >= 10)
+    )
+]
+noise_coles.count()
+print("noise-induced hearing loss with atleast 10dB threshold sized dip at 4kHz", noise_coles.count())
+
+####now assign everyone in our dataframe as noise 
+
+merge['noise'] = (
+    (merge['ac_4000'] - merge['ac_8000'] >= 10) & 
+    (
+        (merge['ac_4000'] - merge['ac_2000'] >= 10) |
+        (merge['ac_4000'] - merge['ac_1000'] >= 10)
+    )
+).astype(int)
+
+merge[merge['noise']==1]
+
+
+# Count the occurrences of each cluster for rows where 'noise' is equal to 1
+cluster_counts = merge[merge['noise'] == 1]['cluster'].value_counts()
+
+# Sort clusters based on descending frequency
+sorted_clusters = cluster_counts.sort_values(ascending=False)
+ 
+# Filter the DataFrame based on the 'noise' column
+filtered_merge = merge[merge['noise'] == 1]
+
+# Calculate the mean across the first 6 columns for the filtered DataFrame
+mean_values = filtered_merge.iloc[:, :6].mean()
+
+
+#calculate the IQR
+
+# Extract the first 6 columns for calculation
+quartiles = filtered_merge.iloc[:,:6].quantile([0.25, 0.75])
+upper_quartiles = quartiles.iloc[0].to_numpy()
+lower_quartiles = quartiles.iloc[1].to_numpy()
+
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 8))
+plt.subplots_adjust(hspace=0.5) 
+
+ax1.set_title("Noise-induced phenotype: 10dB greater at 4kHz than at 8kHz and 1/2kHz")
+ax1.set_ylabel("Thresholds (db)")
+ax1.set_xlabel("Frequency (Hz)")
+ax1.set_xlim(200,9000)
+ax1.set_ylim(130,-10)
+ax1.set_facecolor("none")
+
+x = [250,500,1000,2000,4000,8000]
+ticks = [250,500,1000, 2000, 4000, 8000]
+
+
+ax1.set_xscale('log', base=2)
+ax1.set_xticks(x)
+ax1.set_xticklabels(ticks)
+ax1.fill_between(x, shade_y_min, shade_y_max, color='gray', alpha=0.3)
+
+
+ax1.yaxis.set_ticks([120,110,100,90,80,70,60,50,40,30,20,10,0,-10])
+
+ax1.plot()
+ax1.grid(color="grey")
+ax1.grid(axis="x", which='minor',color="grey", linestyle="--")
+ax1.plot(x, mean_values, label='Mean Values', c = 'blue')
+ax1.plot(x, upper_quartiles, c = 'grey',  linestyle='--')
+ax1.plot(x, lower_quartiles, c = 'grey', linestyle='--')
+ax1.grid(False)
+ax1.plot(x, )
+
+# Add label 'B' to the top-left corner of the second subplot
+ax1.text(-0.05, 1.15, 'A', transform=ax1.transAxes, fontsize=16, fontweight='bold', va='top', ha='right')
+
+
+
+# Plot the mean values
+
+
+import matplotlib.pyplot as plt
+
+
+# Count the occurrences of each cluster for rows where 'noise' is equal to 1
+cluster_counts = merge[merge['noise'] == 1]['cluster'].value_counts()
+
+# Sort clusters based on descending frequency
+sorted_clusters = cluster_counts.sort_values(ascending=False)
+
+# Plotting
+plt.bar(sorted_clusters.index.astype(str), sorted_clusters.values)
+plt.xlabel('Cluster')
+plt.ylabel('Count')
+plt.title('Distribution of Clusters for Noise Induced Hearing Loss')
+plt.grid(False)
+
+# Add label 'B' to the top-left corner of the second subplot
+ax2.text(-0.05, 1.15, 'B', transform=ax2.transAxes, fontsize=16, fontweight='bold', va='top', ha='right')
+# Save the plot as a JPEG file
+plt.savefig('clusters_NOISE.jpg', format='jpeg', dpi=300)
+plt.show
+
+"""Menniere's disease
+
+Low frequency loss defined audiometrically using pre-established criteria. First the low-frequency, mid-frequency and high-frequency hearing losses L1, L2 and L3 were computed as: L1 = [(threshold at 250 Hz) + (threshold at 500 Hz)]/2 L2 = [(threshold at 1 kHz) + (threshold at 2 kHz)]/2 L3 = [(threshold at 4 kHz) + (threshold at 8 kHz)]/2
+
+‘low’ frequency losses ie reverse sloping hearing loss defined as: L3 − L1 ≤ −10"""
+
+L1 = (gmm_thresholds_bl['ac_250'] +  gmm_thresholds_bl['ac_500'])/2
+L3 = (gmm_thresholds_bl['ac_4000'] +  gmm_thresholds_bl['ac_8000'])/2
+merge["meniere"] = L3 - L1 <=-10
+meniere.sum()
+print("Reverse sloping hearing loss", meniere.sum()) 
+
+
+#assign meniere to 1 when the criterion is met 
+merge[merge['meniere']==1]
+
+# Count the occurrences of each cluster for rows where 'meniere' is equal to 1
+cluster_counts = merge[merge['meniere'] == 1]['cluster'].value_counts()
+
+# Sort clusters based on descending frequency
+sorted_clusters = cluster_counts.sort_values(ascending=False)
+ 
+# Filter the DataFrame based on the 'noise' column
+filtered_merge = merge[merge['meniere'] == 1]
+
+# Calculate the mean across the first 6 columns for the filtered DataFrame
+mean_values = filtered_merge.iloc[:, :6].mean()
+
+
+#calculate the IQR
+
+# Extract the first 6 columns for calculation
+quartiles = filtered_merge.iloc[:,:6].quantile([0.25, 0.75])
+upper_quartiles = quartiles.iloc[0].to_numpy()
+lower_quartiles = quartiles.iloc[1].to_numpy()
+
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 8))
+plt.subplots_adjust(hspace=0.5) 
+
+ax1.set_title("Reverse sloping phenotype")
+ax1.set_ylabel("Thresholds (db)")
+ax1.set_xlabel("Frequency (Hz)")
+ax1.set_xlim(200,9000)
+ax1.set_ylim(130,-10)
+ax1.set_facecolor("none")
+
+x = [250,500,1000,2000,4000,8000]
+ticks = [250,500,1000, 2000, 4000, 8000]
+
+
+ax1.set_xscale('log', base=2)
+ax1.set_xticks(x)
+ax1.set_xticklabels(ticks)
+ax1.fill_between(x, shade_y_min, shade_y_max, color='gray', alpha=0.3)
+
+
+ax1.yaxis.set_ticks([120,110,100,90,80,70,60,50,40,30,20,10,0,-10])
+
+ax1.plot()
+ax1.grid(color="grey")
+ax1.grid(axis="x", which='minor',color="grey", linestyle="--")
+ax1.plot(x, mean_values, label='Mean Values', c = 'blue')
+ax1.plot(x, upper_quartiles, c = 'grey',  linestyle='--')
+ax1.plot(x, lower_quartiles, c = 'grey', linestyle='--')
+ax1.grid(False)
+ax1.plot(x, )
+
+# Add label 'B' to the top-left corner of the second subplot
+ax1.text(-0.05, 1.15, 'A', transform=ax1.transAxes, fontsize=16, fontweight='bold', va='top', ha='right')
+
+
+
+# Plot the mean values
+
+
+import matplotlib.pyplot as plt
+
+
+# Count the occurrences of each cluster for rows where 'noise' is equal to 1
+cluster_counts = merge[merge['meniere'] == 1]['cluster'].value_counts()
+
+# Sort clusters based on descending frequency
+sorted_clusters = cluster_counts.sort_values(ascending=False)
+
+# Plotting
+plt.bar(sorted_clusters.index.astype(str), sorted_clusters.values)
+plt.xlabel('Cluster')
+plt.ylabel('Count')
+plt.title('Distribution of Clusters for Reverse Sloping Hearing Loss')
+plt.grid(False)
+
+# Add label 'B' to the top-left corner of the second subplot
+ax2.text(-0.05, 1.15, 'B', transform=ax2.transAxes, fontsize=16, fontweight='bold', va='top', ha='right')
+# Save the plot as a JPEG file
+plt.savefig('clusters_meniere.jpg', format='jpeg', dpi=300)
+plt.show
+
+### Heat map analysis looking at cluster assignment between left and right ears 
+
+
+# Pivot the DataFrame to have 'side' and 'cluster' as separate columns
+result = merge.pivot_table(index='rid', columns='side', values='cluster', aggfunc='first').reset_index()
+
+# Rename columns if needed
+result.columns.name = None  # Remove the 'side' label on columns
+result = result.rename(columns={'left': 'left_cluster', 'right': 'right_cluster'})
+
+
+# Create a contingency table
+contingency_table = pd.crosstab(result['left_cluster'], result['right_cluster']).transpose()
+
+print(contingency_table)
+
+# Calculate the probability
+probability_table = contingency_table.div(contingency_table.sum(axis=0), axis=1)
+probability_table
+
+
+
+# Round the values in the probability table to 2 decimal places
+probability_table_rounded = probability_table.round(2)
+
+# Plot the heatmap for the probability table with rounded values
+plt.figure(figsize=(10, 8))
+sns.heatmap(probability_table_rounded, annot=True, cbar=True, fmt=".2f", cmap = 'Blues')
+plt.title("Probability Table Heatmap (Rounded to 2 Decimal Places)")
+plt.savefig('heatmap.jpg', format='jpeg', dpi=300)
 plt.show()
 
