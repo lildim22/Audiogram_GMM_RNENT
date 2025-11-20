@@ -6,73 +6,88 @@ This repository contains a full analytic workflow for characterising audiometric
 The workflow is divided into two components. A SQL script is used to extract and preprocess the raw audiogram data, ensuring appropriate data cleaning, demographic merging, and patient-level aggregation. A Jupyter notebook then performs the full statistical analysis, including model fitting, cluster interpretation, clinical phenotype mapping, and replication testing.
 
 ## SQL Preprocessing
-The SQL file (`data_preprocessing.sql`) prepares the audiology dataset as imported from Auditbase for modelling by:
-- Removing duplicate records
-- Performing data linkage with eletronic health record databases to complete sex and age fields and filtering patients with plausible values for these fields.
-- Cleaning invalid or implausible threshold values
-- Filtering records that show sensorineural hearing loss
-- Filtering records to only include adult patients. 
+
+The SQL file (`Auditbase_audiograms.sql`) prepares the audiology dataset as imported from Auditbase for modelling by:
+
+- Selecting AC and BC threshold data from the raw tables.  
+- Retrieving and linking patient demographics (date of birth, sex) across current and historic EHR systems.  
+- Removing duplicate audiograms and restricting to one audiogram per patient per date.  
+- Excluding records with impossible threshold values (< −10 dB, > 120 dB, or not in 5-dB steps).  
+- Retaining audiograms with complete AC data across all six frequencies of interest.  
+- Identifying whether BC is available for each ear and classifying audiograms as AC-only or AC+BC.  
+- Computing air–bone gaps and classifying ears as SNHL, CHL, or incomplete based on ABG patterns.  
+- Combining all tables containing SNHL cases into a single unified SNHL dataset.  
+- Filtering to retain adults (≥ 18 years).  
+- Restricting the final dataset to adults with bilateral SNHL and complete AC thresholds in both ears.  
 
 The processed dataset is subsequently imported into Python for analysis.
 
 ## GMM Audiogram Modelling
-The notebook (`GMM_audiogram_analysis.ipynb`) implements the comprehensive modelling pipeline:
+
+The notebook (`GMM_audiogram_analysis.ipynb`) implements the full modelling pipeline.
 
 ### Data preparation
-- Loading SQL-processed audiometric data  
-- Selecting a single audiogram per patient - chosen at random
+- Load the SQL-processed audiometric dataset.  
+- Select a single audiogram per patient (randomly chosen when multiple are available).  
 
 ### Dataset summary
-- Computing population-level demographic summaries  
+- Compute population-level demographic summaries (e.g. age and sex distributions).  
+- Summarise the distribution of audiometric thresholds across frequencies.  
 
 ### Feature selection
-Six threshold frequencies are used as model features: 250 Hz, 500 Hz, 1 kHz, 2 kHz, 4 kHz, and 8 kHz.
+- Use six threshold frequencies as model features:  
+  - 250 Hz, 500 Hz, 1 kHz, 2 kHz, 4 kHz, and 8 kHz.  
 
 ### Model selection
-A range of GMMs (2–15 components) is fitted across 21 random initialisations. AIC and BIC, along with their confidence intervals, guide selection of the optimal number of clusters. A 9-cluster solution is identified as the best overall model for this dataset.
+- Fit a range of GMMs (e.g. 2–15 components) across multiple random initialisations.  
+- Use AIC and BIC, with confidence intervals, to select the optimal number of clusters.  
+- Identify a final cluster solution that balances model fit and interpretability (e.g. a 9-cluster model).  
 
 ### Cluster characterisation
 For each cluster, the notebook derives:
-- Mean audiometric configuration  
-- Interquartile range of thresholds  
-- Prevalence within the dataset  
-- Corresponding demographic distributions (age and sex)  
 
-These results provide a physiologically interpretable set of audiometric phenotypes.
+- Mean audiometric configuration.  
+- Interquartile range (IQR) of thresholds.  
+- Cluster prevalence within the dataset.  
+- Demographic profiles (age and sex) associated with each cluster.  
+
+These results provide a set of physiologically interpretable audiometric phenotypes.
 
 ### Mapping known clinical phenotypes
-Two predefined clinically recognised patterns are identified using established audiological criteria:
-- Noise-induced hearing-loss pattern  
-- Reverse-sloping low-frequency loss consistent with Meniere’s disease  
-
-The analysis determines how patients exhibiting these patterns are distributed among the GMM-derived clusters.
+- Define clinically recognised patterns using established audiological criteria, including:  
+  - Noise-induced hearing-loss patterns.  
+  - Reverse-sloping low-frequency loss consistent with Ménière’s disease.  
+- Quantify how these clinically defined patterns map onto the GMM-derived clusters.  
 
 ### Bilateral consistency analysis
-Cluster allocations for left and right ears are compared to evaluate within-patient agreement. A probability heatmap visualises the correspondence between ear-pair cluster assignments.
+- Compare cluster allocations for left and right ears within individuals.  
+- Summarise within-patient agreement in cluster assignment.  
+- Visualise bilateral correspondence using probability/heatmap-style plots.  
 
-## Replication and Robustness Analyses
-To evaluate the stability of the cluster solutions, the notebook includes three complementary replication analyses:
+### Replication and robustness analyses
+To assess stability of the cluster solution, the notebook performs:
 
-1. **Bootstrap resampling (n = 1000):**  
-   GMMs are refitted to resampled datasets, and Jaccard similarity coefficients quantify the similarity of cluster membership between the bootstrap models and the original model.
+- **Bootstrap resampling (e.g. n = 1000):**  
+  - Refit GMMs to bootstrap samples.  
+  - Use Jaccard similarity to quantify agreement in cluster membership with the original model.  
 
-2. **Multiple model initialisations:**  
-   The GMM is re-run across 20 additional random seeds to examine sensitivity to model initialisation. Cluster assignments remain consistently reproducible across runs.
+- **Multiple model initialisations:**  
+  - Re-run the chosen GMM model across multiple random seeds.  
+  - Assess how consistently individuals are assigned to the same clusters.  
 
-3. **Dataset-size sensitivity analysis:**  
-   GMMs are fitted to random subsets representing 10–90% of the original dataset. The mean Jaccard similarity across subsets demonstrates how cluster stability varies with sample size.
+- **Dataset-size sensitivity analysis:**  
+  - Fit GMMs to random subsets (e.g. 10–90% of the full dataset).  
+  - Evaluate how cluster stability changes as a function of sample size.  
 
+### Outputs
+The notebook generates and saves:
 
-## Outputs
-The notebook generates:
-- Audiogram cluster phenotype plots  
-- AIC/BIC model-selection curves  
-- Demographic profiles by cluster  
-- Clinical phenotype mapping outputs  
-- Bilateral ear correspondence heatmap  
-- Jaccard similarity analyses for bootstrap, model initialisation, and dataset-size sensitivity  
-
-All visual outputs are saved in the results directory.
+- Audiogram cluster phenotype plots.  
+- AIC/BIC model-selection curves.  
+- Demographic profiles by cluster.  
+- Clinical phenotype mapping outputs.  
+- Bilateral ear correspondence heatmaps.  
+- Jaccard similarity results for bootstrap, model initialisation, and subset-size analyses.  
 
 ## License
-This project is licensed under the **MIT License**:
+This project is licensed under the **MIT License**.
