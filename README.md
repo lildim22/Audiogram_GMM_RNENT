@@ -3,7 +3,7 @@
 ## Overview
 This repository contains a full analytic workflow for characterising audiometric hearing-loss phenotypes using Gaussian Mixture Modelling (GMM). Building upon the work of Parthasarathy et al., this project applies a comparable modelling framework to a large United Kingdom hearing-health population and assesses the replicability, robustness, and clinical relevance of the resulting clusters. The analysis examines whether the GMM-derived phenotypes previously described in the literature generalise to a large independent cohort and evaluates their stability under sampling and modelling variability.
 
-The workflow is divided into two components. A SQL script is used to extract and preprocess the raw audiogram data, ensuring appropriate data cleaning, demographic merging, and patient-level aggregation. A Jupyter notebook then performs the full statistical analysis, including model fitting, cluster interpretation, clinical phenotype mapping, and replication testing.
+The workflow is divided into two components. A SQL script (Auditbase_audiograms.sql) is used to extract and preprocess the raw audiogram data, ensuring appropriate data cleaning, demographic merging, and patient-level aggregation. A Jupyter notebook (gmm_scientific_reports.ipynb) then performs the full statistical analysis, including model fitting, cluster interpretation, clinical phenotype mapping, and replication testing.
 
 ## SQL Preprocessing
 
@@ -24,7 +24,7 @@ The processed dataset is subsequently imported into Python for analysis.
 
 ## GMM Audiogram Modelling
 
-The notebook (`GMM_audiogram_analysis.ipynb`) implements the full modelling pipeline.
+The notebook (`gmm_scientific_reports.ipynb`) implements the full modelling pipeline.
 
 ### Data preparation
 - Load the SQL-processed audiometric dataset.  
