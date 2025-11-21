@@ -421,6 +421,10 @@ SELECT COUNT(*) FROM audio_nn;   -- 314,172
 
 /*======================================================================*
     SECTION 16: IDENTIFY DUPLICATE AUDIOGRAMS (IGNORE audindex)
+These are records where there are duplicate rows across all fields so the audiograms have the same date / patient_id and values for all the frequencies. 
+They may differ by a field called "audindex" which is the index of that audiogram for a specific patient on a specific date but this just means that they have either had 
+a repeat audiogram performed on a given date which is identical to the initial audiogram or their audiogram result was logged twice. Either way the actual audiogram results
+are duplicates and can be removed.
 *======================================================================*/
 
 -- Count DISTINCT audiograms ignoring audindex
@@ -436,11 +440,6 @@ FROM (
 ) lily;   -- 301,546
 
 SELECT 314172 - 301546 AS "Duplicates_due_to_audindex"; -- 12,626
-
-/*Audindex is an index of an audiogram per date - some people in the database have multiple audiograms on the same day. Some of these audiograms 
-are actually duplicates - so the values are all but for whatever reason they have been logged twice or more and therefore differ by the audindex only.
-This corresponds to 12626 records - in this case those records which differ by the audindex only - only the first record is retained (see Section 17)
-*/
 
 /*======================================================================*
     SECTION 17: REMOVE DUPLICATES BY MINIMUM audindex
@@ -471,10 +470,12 @@ SELECT COUNT(*) FROM audio_audindex;   -- 301,546
     SECTION 18: IDENTIFY REMAINING MULTIPLE-AUDINDEX CASES
 *======================================================================*/
 
-/* after removing duplicate audiograms that differ only by the audindex we know look at those who have multiple audiograms on a given day that do differ.
+/* after removing duplicate audiograms that differ only by the audindex we know look at those who have multiple audiograms on a given day that do differ by values. 
+This means that someone has had more than 1 audiogram on a day that has yielded different results. We are ultimately interested in only 1 audiogram per patient 
+therefore need to select only a single audiogram from a given day in the first instance.
 */
 
--- audindex counts
+-- audindex counts - the number of patients with 2 or more audiograms done on a single day. 
 SELECT COUNT(*) FROM audio_audindex WHERE audindex >= 2;  -- 6,789
 
 SELECT COUNT(*) FROM audio_audindex WHERE audindex = 2;   -- 6458
@@ -497,6 +498,8 @@ SELECT 301546 - 295912 AS "Remaining_audindex_duplicates"; -- 5,634
 
 /*======================================================================*
     SECTION 19: RESOLVE DUPLICATE audiograms VIA NULL-COUNT RANKING
+
+Here we create a rule to pick the most complete audiogram i.e. the audiogram with the most non-null values across the test frequencies. 
 *======================================================================*/
 
 -- Count NULL thresholds for each audiogram
@@ -568,7 +571,8 @@ SELECT COUNT(*) FROM data_curves;  -- 295,913
 
 
 /*======================================================================*
-    SECTION 21: CHECK FOR EMPTY FREQUENCY ROWS AGAIN
+    SECTION 21: CHECK FOR EMPTY FREQUENCY ROWS AGAIN 
+    This is just to make sure no empty curves have crept into the dataset
 *======================================================================*/
 
 -- AC curves
@@ -609,6 +613,8 @@ WHERE curve = 0 AND
 
 /*======================================================================*
     SECTION 22: CHECK FOR OUT-OF-RANGE THRESHOLDS
+Before merging we check for threshold values that are not in keeping with test protocol - thresholds are measured in 5 decibel intervals between -10 and +120
+So all values should be within these parameters.
 *======================================================================*/
 
 DROP TABLE IF EXISTS data_curves_outrange;
@@ -838,6 +844,9 @@ SELECT 121478 + 344 + 52614 + 121478 AS addition;                 -- 295,914
 
 /*======================================================================*
     SECTION 26: REMOVE NON-MULTIPLE-OF-5 AND OUT-OF-RANGE VALUES
+
+This is done after the join so that we do not remove part of the audiogram and incorrectly categorise the audiogram as having only AC or BC thresholds when both 
+thresholds were present.
 *======================================================================*/
 
 -- Identify values not multiples of 5 in BC-only
@@ -1050,6 +1059,9 @@ SELECT COUNT(*) FROM data_join;                                   -- 121,218
 
 /*======================================================================*
     SECTION 30: IDENTIFY AC-ONLY PATIENTS WHO ALSO APPEAR IN BC/AC+BC GROUPS
+
+AC is typically only repeated without BC if there was no ABG in the preceding audiogram i.e. they have a SNHL.
+This rule of thumb is used to keep records with only AC thresholds if they previously had a BC measured. It serves as a proxy that they had a SNHL in another audiogram.
 *======================================================================*/
 
 -- All AC-only patients appear in data_join (they previously had BC or matched AC+BC pairs)
@@ -1063,6 +1075,7 @@ FROM (
 
 /*======================================================================*
     SECTION 31: FILTER AC-ONLY RECORDS WITH COMPLETE 250–8000 Hz DATA (BOTH EARS)
+These are the test frequencies that need to be complete for inclusion into the dataset. 
 *======================================================================*/
 
 DROP TABLE IF EXISTS data_ac_250to8000_bl;
@@ -1187,6 +1200,11 @@ SELECT 41522 + 1746 + 1600 + 7565 AS "Addition";  -- 52,433 (sanity check)
 
 /*======================================================================*
     SECTION 35: BUILD CLEANED AC-ONLY TABLE (BINAURAL)
+
+This is creating a table with only the fields of interest - patient id, sex, age, date of audiogram and a single threshold value for each frequency per ear.
+For each frequency per ear there are up to 2 values given for the threshold  - the unmasked threshold and the masked threshold. Whether a masked threshold is performed
+is governed by the rules of masking that all practicing audiologists are aware. If an unmasked threshold is not performed it is assumed that the patient did not require
+masking. The ipsilateral masked threshold is selected preferentially over the unmasked threshold. 
 *======================================================================*/
 
 DROP TABLE IF EXISTS data_ac_bl;
@@ -1298,7 +1316,13 @@ SELECT COUNT(*) FROM data_ac_r;      -- 1,600
 
 /*======================================================================*
     STAGE 3: PROCESS AUDIOGRAMS WITH BOTH AC AND BC (AC+BC PAIRS)
-    NOTE: This stage mirrors Stage 2 but operates on AC/BC joined data.
+    NOTE: This stage mirrors Stage 2 but operates on AC/BC joined data. 
+This section is more complex given the additional factors to consider when using bone conduction. 
+Primarily masked bone conduction can be used to determine the ABG in the ipsilateral ear using the ipsilateral AC only.
+Unmaksed BC however can be used to determine the ABG in both the ipsilateral and contralateral ear. 
+Again the rules of masking of BC are laid out and audiologists use these rules to determine when masking is needed.
+Therefore if BC has not been masked it can be used to determine the ABG in either ear. However where BC is masked this will be used preferentially over the unmasked threshold
+for the ipsilateral ear only.
 *======================================================================*/
 
 
@@ -1334,6 +1358,7 @@ SELECT COUNT(*) FROM data_acbc_ac250to8000_bl;    -- 114,146
 
 /*======================================================================*
     SECTION 41: AC+BC — COMPLETE LEFT EAR ONLY (INCOMPLETE RIGHT)
+this refers to AC complete across the 6 frequencies in the left ear only 
 *======================================================================*/
 
 DROP TABLE IF EXISTS data_acbc_ac250to8000_l;
@@ -1396,6 +1421,7 @@ SELECT COUNT(*) FROM data_acbc_ac250to8000_r;     -- 1,663
 
 /*======================================================================*
     SECTION 43: AC+BC — INCOMPLETE LEFT AND RIGHT EARS
+Where neither the left or right ear have the 6 AC frequencies completed
 *======================================================================*/
 
 DROP TABLE IF EXISTS data_acbc_ac250to8000_none;
@@ -1941,7 +1967,7 @@ SELECT COUNT(*)
 FROM data_acbc_ac250to8000_bl_bc500to2000_bl_abg_l_1freqr;  -- 40
 
 
--- 5D-7. Build final SNHL dataset ---------------------------------------------
+-- 5D-7. Build final SNHL dataset for those with AC and BC in both ears ---------------------------------------------
 DROP TABLE IF EXISTS data_acbc_ac250to8000_bl_bc500to2000_SNHL;
 
 CREATE TABLE data_acbc_ac250to8000_bl_bc500to2000_SNHL (
@@ -2019,7 +2045,7 @@ FROM data_acbc_ac250to8000_bl_bc2freq_l_rincom;   -- 39,711
 
 /*======================================================================*
     52.1 CREATE AC + BC TABLE (LEFT-ONLY BC, AC BOTH EARS)
-    - AC: collapse masked/unmasked to a single threshold per frequency
+    - AC: collapse masked/unmasked to a single threshold per frequency selecting the masked AC preferentially if masked and unmasked both performed
     - BC LEFT: keep t and tm for now (logic depends on them)
 *======================================================================*/
 
@@ -2088,6 +2114,9 @@ FROM data_acbc_ac250to8000_bl_bc500to2000_bc2freq_l_oneperfreq;  -- 39,711
     52.2 SPLIT BY MASKED (tm) VS UNMASKED (t) LEFT BC
     - tm_notnull  : at least two masked (tm) BC thresholds among 500/1000/2000
     - tm_null     : masked values absent at the pair(s) of interest
+
+This split is needed as if BC only done on one ear it can be used to infer ABG bilaterally if unmasked. 
+If BC is masked then it can only be used to infer ABG in the ipsilateral ear. 
 *======================================================================*/
 
 DROP TABLE IF EXISTS data_acbc_ac250to8000_bl_bc2freq_l_tm_notnull;
@@ -2123,7 +2152,7 @@ SELECT 24616 + 15095 AS "Addition_Stage52_split";  -- 39,711
 /*======================================================================*
     52.3 GROUP A: MASKED LEFT BC (tm NOT NULL) BUT UNMASKED t MISSING
     - Can only make conclusions about the left ear
-    - Use tm for ABG; ignore right ear for ABG
+    - Use tm for ABG in left only; ignore right ear for ABG
 *======================================================================*/
 
 DROP TABLE IF EXISTS data_acbc_ac250to8000_bl_bc2freq_l_tm_notnull_t_null;
@@ -3524,6 +3553,7 @@ WHERE
 --   These are patients with complete AC in the LEFT ear only.
 --   BC may be complete or incomplete on left OR (in later parts)
 --   right-ear BC may be used as a proxy for absent left BC.
+-- these will not contribute to the final dataset which require bl AC complete across all frequencies.
 ---------------------------------------------------------------------
 
 
